@@ -1,3 +1,4 @@
+'use strict';
 // ============================================
 // HABIT TRACKER CLI - CHALLENGE 3
 // ============================================
@@ -11,7 +12,7 @@ const path = require('path');
 
 // Constants
 const DATA_FILE = path.join(__dirname, 'habits-data.json');
-const REMINDER_INTERVAL = 60000; // 1 menit( MAAF 10detik seperti perintah soal terlalu mengganggu T.T)
+const REMINDER_INTERVAL = 60000;
 const DAYS_IN_WEEK = 7;
 const DEFAULT_CATEGORIES = [
   'Kesehatan',
@@ -22,6 +23,7 @@ const DEFAULT_CATEGORIES = [
   'Hobi',
   'Umum',
 ];
+
 // ============================================
 // COLOR CONSTANTS
 // ============================================
@@ -29,8 +31,6 @@ const colors = {
   reset: '\x1b[0m',
   bright: '\x1b[1m',
   dim: '\x1b[2m',
-
-  // Text Colors
   red: '\x1b[31m',
   green: '\x1b[32m',
   yellow: '\x1b[33m',
@@ -38,8 +38,6 @@ const colors = {
   magenta: '\x1b[35m',
   cyan: '\x1b[36m',
   white: '\x1b[37m',
-
-  // Background Colors (untuk header saja)
   bgBlue: '\x1b[44m',
   bgGreen: '\x1b[42m',
   bgYellow: '\x1b[43m',
@@ -53,11 +51,21 @@ const error = (text) => `${colors.red}${text}${colors.reset}`;
 const info = (text) => `${colors.blue}${text}${colors.reset}`;
 const highlight = (text) => `${colors.cyan}${text}${colors.reset}`;
 
+// Import modules
+const Helpers = require('./helpers');
+const MenuHandlers = require('./menuHandlers');
+
 // Setup readline interface
 const rl = readline.createInterface({
   input: process.stdin,
   output: process.stdout,
 });
+
+function askQuestion(question) {
+  return new Promise((resolve) => {
+    rl.question(question, resolve);
+  });
+}
 
 // ============================================
 // USER PROFILE CLASS
@@ -88,6 +96,7 @@ class UserProfile {
     return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
   }
 }
+
 // ============================================
 // HABIT CLASS
 // ============================================
@@ -110,12 +119,10 @@ class Habit {
   }
 
   markComplete() {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const today = Helpers.getStartOfDay(new Date());
 
     const alreadyCompleted = this.completions.some((completion) => {
-      const compDate = new Date(completion);
-      compDate.setHours(0, 0, 0, 0);
+      const compDate = Helpers.getStartOfDay(new Date(completion));
       return compDate.getTime() === today.getTime();
     });
 
@@ -155,35 +162,32 @@ class Habit {
 
   getProgressBar() {
     const percentage = this.getProgressPercentage();
-    const bars = Math.round(percentage / 10);
-    return '█'.repeat(bars) + '░'.repeat(10 - bars);
+    return Helpers.getProgressBar(percentage);
   }
+
   getCurrentStreak() {
     if (this.completions.length === 0) return 0;
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const today = Helpers.getStartOfDay(new Date());
+    const sortedDates = this.getSortedCompletionDates();
 
-    // Urutkan tanggal descending
-    const sortedDates = [...this.completions]
-      .map((d) => new Date(d))
+    return this.calculateStreakFromDates(today, sortedDates);
+  }
+
+  getSortedCompletionDates() {
+    return [...this.completions]
+      .map((d) => Helpers.getStartOfDay(new Date(d)))
       .sort((a, b) => b - a);
+  }
 
+  calculateStreakFromDates(today, sortedDates) {
     let streak = 0;
     let currentDate = new Date(today);
 
     for (let i = 0; i < sortedDates.length; i++) {
-      const compDate = new Date(sortedDates[i]);
-      compDate.setHours(0, 0, 0, 0);
+      const compDate = sortedDates[i];
 
-      if (compDate.getTime() === currentDate.getTime()) {
-        streak++;
-        currentDate.setDate(currentDate.getDate() - 1);
-      } else if (
-        i === 0 &&
-        compDate.getTime() === currentDate.getTime() - 86400000
-      ) {
-        // Jika kemarin dikerjakan, lanjutkan streak
+      if (Helpers.isConsecutiveDay(compDate, currentDate, i)) {
         streak++;
         currentDate.setDate(currentDate.getDate() - 1);
       } else {
@@ -194,6 +198,7 @@ class Habit {
     return streak;
   }
 }
+
 // ============================================
 // HABIT TRACKER CLASS
 // ============================================
@@ -226,11 +231,10 @@ class HabitTracker {
     return this.habits.filter((habit) => habit.userId === this.currentUser.id);
   }
 
-  // CRUD Operations untuk habits user saat ini
+  // CRUD Operations
   addHabit(name, frequency, category = 'Umum') {
     if (!this.currentUser) return null;
 
-    // Validasi kategori
     if (!DEFAULT_CATEGORIES.includes(category)) {
       category = 'Umum';
     }
@@ -279,13 +283,20 @@ class HabitTracker {
     return false;
   }
 
-  // Display Methods
+  // ========== DISPLAY METHODS  ==========
+
   displayProfile() {
     if (!this.currentUser) return;
 
     const userHabits = this.getCurrentUserHabits();
     this.currentUser.updateStats(userHabits);
 
+    this.displayProfileHeader();
+    this.displayProfileInfo();
+    this.displayProfileFooter();
+  }
+
+  displayProfileHeader() {
     console.log(
       `\n${colors.bgGreen}${colors.white}==================================================${colors.reset}`
     );
@@ -295,6 +306,9 @@ class HabitTracker {
     console.log(
       `${colors.bgGreen}${colors.white}==================================================${colors.reset}`
     );
+  }
+
+  displayProfileInfo() {
     console.log(
       `${colors.cyan}Nama:${colors.reset} ${highlight(this.currentUser.name)}`
     );
@@ -323,6 +337,9 @@ class HabitTracker {
         this.currentUser.completedHabits
       )}`
     );
+  }
+
+  displayProfileFooter() {
     console.log(
       `${colors.bgGreen}${colors.white}==================================================${colors.reset}\n`
     );
@@ -331,8 +348,19 @@ class HabitTracker {
   displayHabits(filter = 'all') {
     if (!this.currentUser) return;
 
-    const userHabits = this.getCurrentUserHabits();
+    this.displayHabitsHeader();
+    const filteredHabits = this.getFilteredHabits(filter);
 
+    if (filteredHabits.length === 0) {
+      this.displayNoHabitsMessage(filter);
+      return;
+    }
+
+    this.renderHabitsList(filteredHabits);
+    this.displayHabitsFooter();
+  }
+
+  displayHabitsHeader() {
     console.log(
       `\n${colors.bgBlue}${colors.white}==================================================${colors.reset}`
     );
@@ -342,103 +370,83 @@ class HabitTracker {
     console.log(
       `${colors.bgBlue}${colors.white}==================================================${colors.reset}`
     );
+  }
 
-    if (userHabits.length === 0) {
-      console.log(warning('Belum ada kebiasaan yang ditambahkan.'));
-      console.log(
-        `${colors.bgBlue}${colors.white}==================================================${colors.reset}\n`
-      );
-      return;
-    }
-
-    let filteredHabits = [];
+  getFilteredHabits(filter) {
+    const userHabits = this.getCurrentUserHabits();
 
     switch (filter) {
       case 'active':
-        filteredHabits = userHabits.filter(
-          (habit) => !habit.isCompletedThisWeek()
-        );
-        break;
+        return userHabits.filter((habit) => !habit.isCompletedThisWeek());
       case 'completed':
-        filteredHabits = userHabits.filter((habit) =>
-          habit.isCompletedThisWeek()
-        );
-        break;
+        return userHabits.filter((habit) => habit.isCompletedThisWeek());
       default:
-        filteredHabits = [...userHabits];
+        return [...userHabits];
     }
+  }
 
-    if (filteredHabits.length === 0) {
+  displayNoHabitsMessage(filter) {
+    if (filter === 'all') {
+      console.log(warning('Belum ada kebiasaan yang ditambahkan.'));
+    } else {
       console.log(warning(`Tidak ada kebiasaan dengan status: ${filter}`));
-      console.log(
-        `${colors.bgBlue}${colors.white}==================================================${colors.reset}\n`
-      );
-      return;
     }
-
-    filteredHabits.forEach((habit, index) => {
-      const status = habit.getStatus();
-      const statusColor = status === 'Selesai' ? colors.green : colors.yellow;
-      const streak = habit.getCurrentStreak();
-      const streakText =
-        streak > 0
-          ? success(`${streak} hari berturut-turut`)
-          : colors.dim + 'Belum ada streak' + colors.reset;
-
-      console.log(
-        `${colors.green}${index + 1}.${colors.reset} [${statusColor}${status}${
-          colors.reset
-        }] ${highlight(habit.name)}`
-      );
-      console.log(
-        `   ${colors.dim}Target:${colors.reset} ${colors.white}${habit.targetFrequency}x/minggu${colors.reset}`
-      );
-      console.log(
-        `   ${colors.dim}Progress:${colors.reset} ${colors.white}${
-          habit.getThisWeekCompletions().length
-        }/${habit.targetFrequency} (${habit.getProgressPercentage()}%)${
-          colors.reset
-        }`
-      );
-      console.log(
-        `   ${colors.dim}Progress Bar:${
-          colors.reset
-        } ${this.getColoredProgressBar(
-          habit.getProgressPercentage()
-        )} ${this.getProgressColor(
-          habit.getProgressPercentage()
-        )}${habit.getProgressPercentage()}%${colors.reset}`
-      );
-      console.log(`   ${colors.dim}Streak:${colors.reset} ${streakText}`);
-      console.log(
-        `   ${colors.dim}Kategori:${colors.reset} ${info(habit.category)}`
-      );
-      console.log('');
-    });
     console.log(
       `${colors.bgBlue}${colors.white}==================================================${colors.reset}\n`
     );
   }
 
-  // Helper method untuk progress bar berwarna
-  getColoredProgressBar(percentage) {
-    const bars = Math.round(percentage / 10);
-    const color = this.getProgressColor(percentage);
-    return (
-      color +
-      '█'.repeat(bars) +
-      colors.dim +
-      '░'.repeat(10 - bars) +
-      colors.reset
+  renderHabitsList(habits) {
+    habits.forEach((habit, index) => {
+      this.renderHabitItem(habit, index);
+    });
+  }
+
+  renderHabitItem(habit, index) {
+    const status = habit.getStatus();
+    const statusColor = status === 'Selesai' ? colors.green : colors.yellow;
+    const streak = habit.getCurrentStreak();
+    const streakText = Helpers.getStreakText(streak, colors, success);
+
+    console.log(
+      `${colors.green}${index + 1}.${colors.reset} [${statusColor}${status}${
+        colors.reset
+      }] ${highlight(habit.name)}`
+    );
+    console.log(
+      `   ${colors.dim}Target:${colors.reset} ${colors.white}${habit.targetFrequency}x/minggu${colors.reset}`
+    );
+    console.log(
+      `   ${colors.dim}Progress:${colors.reset} ${colors.white}${
+        habit.getThisWeekCompletions().length
+      }/${habit.targetFrequency} (${habit.getProgressPercentage()}%)${
+        colors.reset
+      }`
+    );
+    console.log(
+      `   ${colors.dim}Progress Bar:${
+        colors.reset
+      } ${Helpers.getColoredProgressBar(
+        habit.getProgressPercentage(),
+        colors
+      )} ${Helpers.getProgressColor(
+        habit.getProgressPercentage(),
+        colors
+      )}${habit.getProgressPercentage()}%${colors.reset}`
+    );
+    console.log(`   ${colors.dim}Streak:${colors.reset} ${streakText}`);
+    console.log(
+      `   ${colors.dim}Kategori:${colors.reset} ${info(habit.category)}`
+    );
+    console.log('');
+  }
+
+  displayHabitsFooter() {
+    console.log(
+      `${colors.bgBlue}${colors.white}==================================================${colors.reset}\n`
     );
   }
 
-  // Helper method untuk warna progress
-  getProgressColor(percentage) {
-    if (percentage >= 80) return colors.green;
-    if (percentage >= 50) return colors.yellow;
-    return colors.red;
-  }
   displayHabitsByCategory() {
     if (!this.currentUser) return;
 
@@ -462,7 +470,6 @@ class HabitTracker {
       return;
     }
 
-    // Group by category
     const habitsByCategory = {};
     userHabits.forEach((habit) => {
       if (!habitsByCategory[habit.category]) {
@@ -488,10 +495,12 @@ class HabitTracker {
         console.log(
           `   ${colors.dim}Progress:${
             colors.reset
-          } ${this.getColoredProgressBar(
-            habit.getProgressPercentage()
-          )} ${this.getProgressColor(
-            habit.getProgressPercentage()
+          } ${Helpers.getColoredProgressBar(
+            habit.getProgressPercentage(),
+            colors
+          )} ${Helpers.getProgressColor(
+            habit.getProgressPercentage(),
+            colors
           )}${habit.getProgressPercentage()}%${colors.reset}`
         );
         console.log(
@@ -507,6 +516,7 @@ class HabitTracker {
       `\n${colors.bgMagenta}${colors.white}==================================================${colors.reset}\n`
     );
   }
+
   displayHabitsWithWhile() {
     const userHabits = this.getCurrentUserHabits();
 
@@ -536,6 +546,7 @@ class HabitTracker {
     }
     console.log('==================================================\n');
   }
+
   displayCompletionHistory(days = 30) {
     if (!this.currentUser) return;
 
@@ -551,13 +562,12 @@ class HabitTracker {
       return;
     }
 
-    // Generate last 30 days
     const dates = [];
     const today = new Date();
     for (let i = 29; i >= 0; i--) {
       const date = new Date(today);
       date.setDate(date.getDate() - i);
-      dates.push(date.toISOString().split('T')[0]);
+      dates.push(Helpers.formatDate(date));
     }
 
     console.log('\nTanggal     | Kebiasaan yang Diselesaikan');
@@ -565,9 +575,7 @@ class HabitTracker {
 
     dates.forEach((date) => {
       const completedHabits = userHabits.filter((habit) =>
-        habit.completions.some(
-          (comp) => comp.toISOString().split('T')[0] === date
-        )
+        habit.completions.some((comp) => Helpers.formatDate(comp) === date)
       );
 
       if (completedHabits.length > 0) {
@@ -576,7 +584,6 @@ class HabitTracker {
       }
     });
 
-    // Statistics
     const totalCompletions = userHabits.reduce(
       (sum, habit) => sum + habit.completions.length,
       0
@@ -588,6 +595,7 @@ class HabitTracker {
     console.log(`Rata-rata per kebiasaan: ${avgCompletion}`);
     console.log('==================================================\n');
   }
+
   displayStats() {
     if (!this.currentUser) return;
 
@@ -611,19 +619,15 @@ class HabitTracker {
       return;
     }
 
-    const habitNames = userHabits.map((habit) => habit.name);
     const completionRates = userHabits.map((habit) =>
       habit.getProgressPercentage()
     );
-
     const bestHabit = userHabits.find(
       (habit) => habit.getProgressPercentage() === Math.max(...completionRates)
     );
-
     const worstHabit = userHabits.find(
       (habit) => habit.getProgressPercentage() === Math.min(...completionRates)
     );
-
     const totalCompletionRate =
       completionRates.reduce((sum, rate) => sum + rate, 0) /
       completionRates.length;
@@ -634,7 +638,7 @@ class HabitTracker {
     console.log(
       `${colors.cyan}Rata-rata completion rate:${
         colors.reset
-      } ${this.getProgressColor(totalCompletionRate)}${Math.round(
+      } ${Helpers.getProgressColor(totalCompletionRate, colors)}${Math.round(
         totalCompletionRate
       )}%${colors.reset}`
     );
@@ -660,8 +664,9 @@ class HabitTracker {
       console.log(
         `  ${colors.green}${index + 1}.${colors.reset} ${highlight(
           habit.name
-        )}: ${this.getProgressColor(
-          habit.getProgressPercentage()
+        )}: ${Helpers.getProgressColor(
+          habit.getProgressPercentage(),
+          colors
         )}${habit.getProgressPercentage()}%${colors.reset}`
       );
     });
@@ -777,7 +782,6 @@ class HabitTracker {
     this.saveToFile();
   }
 
-  // Demo data untuk testing
   addDemoData() {
     if (!this.currentUser) return;
 
@@ -789,13 +793,14 @@ class HabitTracker {
       console.log('Data demo telah ditambahkan!');
     }
   }
+
   exportToCSV() {
     if (!this.currentUser) return false;
 
     const userHabits = this.getCurrentUserHabits();
-    const filename = `habits_export_${this.currentUser.name}_${
-      new Date().toISOString().split('T')[0]
-    }.csv`;
+    const filename = `habits_export_${
+      this.currentUser.name
+    }_${Helpers.formatDate(new Date())}.csv`;
 
     let csvContent =
       'Nama Kebiasaan,Kategori,Target,Progress,Status,Streak,Total Completions\n';
@@ -828,9 +833,9 @@ class HabitTracker {
     if (!this.currentUser) return false;
 
     const userHabits = this.getCurrentUserHabits();
-    const filename = `habits_export_${this.currentUser.name}_${
-      new Date().toISOString().split('T')[0]
-    }.json`;
+    const filename = `habits_export_${
+      this.currentUser.name
+    }_${Helpers.formatDate(new Date())}.json`;
 
     const exportData = {
       exportDate: new Date().toISOString(),
@@ -844,9 +849,7 @@ class HabitTracker {
         status: habit.getStatus(),
         streak: habit.getCurrentStreak(),
         totalCompletions: habit.completions.length,
-        completions: habit.completions.map(
-          (d) => d.toISOString().split('T')[0]
-        ),
+        completions: habit.completions.map((d) => Helpers.formatDate(d)),
       })),
     };
 
@@ -860,14 +863,11 @@ class HabitTracker {
     }
   }
 }
+
 // ============================================
 // HELPER FUNCTIONS
 // ============================================
-function askQuestion(question) {
-  return new Promise((resolve) => {
-    rl.question(question, resolve);
-  });
-}
+
 function displayMenu() {
   console.log(
     `\n${colors.bgBlue}${colors.white}==================================================${colors.reset}`
@@ -927,6 +927,7 @@ function displayMenu() {
     `${colors.bgBlue}${colors.white}==================================================${colors.reset}`
   );
 }
+
 // ========================
 // USER SELECTION FLOW
 // ========================
@@ -1018,185 +1019,86 @@ async function showUserSelection(tracker) {
     return true;
   }
 }
+
 // ============================================
 // MENU HANDLER
 // ============================================
 async function handleMenu(tracker) {
+  const menuHandlers = new MenuHandlers(
+    tracker,
+    colors,
+    success,
+    error,
+    warning,
+    info,
+    highlight,
+    askQuestion,
+    showUserSelection
+  );
+
+  const menuActions = {
+    1: () => tracker.displayProfile(),
+    2: () => tracker.displayHabits('all'),
+    3: () => tracker.displayHabits('active'),
+    4: () => tracker.displayHabits('completed'),
+    5: () => tracker.displayHabitsByCategory(),
+    6: () => tracker.displayCompletionHistory(),
+    7: () => menuHandlers.handleAddHabit(),
+    8: () => menuHandlers.handleCompleteHabit(),
+    9: () => menuHandlers.handleDeleteHabit(),
+    10: () => tracker.displayStats(),
+    11: () => {
+      tracker.displayHabitsWithWhile();
+      tracker.displayHabitsWithFor();
+    },
+    12: () => menuHandlers.handleExportData(),
+    13: () => {
+      if (tracker.reminderInterval) {
+        tracker.stopReminder();
+        console.log(success('Reminder dimatikan!'));
+      } else {
+        tracker.startReminder();
+        console.log(success('Reminder diaktifkan!'));
+      }
+    },
+    14: async () => {
+      tracker.stopReminder();
+      console.log(info('\n[INFO] Kembali ke pemilihan profil...\n'));
+      const userSelected = await showUserSelection(tracker);
+      if (!userSelected) {
+        return 'exit';
+      }
+      return 'continue';
+    },
+    0: () => {
+      console.log(success('Terima kasih telah menggunakan Habit Tracker!'));
+      tracker.stopReminder();
+      rl.close();
+      return 'exit';
+    },
+    demo: () => tracker.addDemoData(),
+    clear: () => {
+      tracker.clearAllData();
+      console.log(success('Semua data telah dihapus!'));
+    },
+  };
+
   while (true) {
     displayMenu();
     const choice = await askQuestion('Pilih menu (0-14): ');
 
-    switch (choice) {
-      case '1':
-        tracker.displayProfile();
-        break;
-
-      case '2':
-        tracker.displayHabits('all');
-        break;
-
-      case '3':
-        tracker.displayHabits('active');
-        break;
-
-      case '4':
-        tracker.displayHabits('completed');
-        break;
-
-      case '5':
-        tracker.displayHabitsByCategory();
-        break;
-
-      case '6':
-        tracker.displayCompletionHistory();
-        break;
-
-      case '7':
-        const name = await askQuestion('Nama kebiasaan: ');
-        const frequency = await askQuestion('Target per minggu: ');
-        const category =
-          (await askQuestion('Kategori (default: Umum): ')) || 'Umum';
-        const freqNumber = parseInt(frequency) || 1;
-
-        if (name.trim()) {
-          tracker.addHabit(name.trim(), freqNumber, category.trim());
-          console.log(success('Kebiasaan berhasil ditambahkan!'));
-        } else {
-          console.log(error('Nama kebiasaan tidak boleh kosong!'));
-        }
-        break;
-
-      case '8':
-        try {
-          tracker.displayHabits('all');
-          const userHabits = tracker.getCurrentUserHabits();
-          if (userHabits.length > 0) {
-            const habitIndex = await askQuestion('Pilih nomor kebiasaan: ');
-            const indexNum = parseInt(habitIndex);
-
-            if (indexNum >= 1 && indexNum <= userHabits.length) {
-              const marked = tracker.completeHabit(indexNum);
-              if (marked) {
-                console.log(
-                  `${colors.green}✅ Kebiasaan berhasil ditandai selesai!${colors.reset}`
-                );
-              } else {
-                console.log(
-                  `${colors.yellow}⚠️ Kebiasaan sudah ditandai selesai hari ini!${colors.reset}`
-                );
-              }
-            } else {
-              console.log(
-                `${colors.red}❌ Nomor kebiasaan tidak valid!${colors.reset}`
-              );
-            }
-          } else {
-            console.log(
-              `${colors.yellow}📝 Tidak ada kebiasaan untuk ditandai.${colors.reset}`
-            );
-          }
-        } catch (err) {
-          console.log(
-            `${colors.red}💥 Terjadi error:${colors.reset}`,
-            err.message
-          );
-        }
-        break;
-
-      case '9':
-        tracker.displayHabits('all');
-        const userHabitsForDelete = tracker.getCurrentUserHabits();
-        if (userHabitsForDelete.length > 0) {
-          const habitIndex = await askQuestion(
-            'Pilih nomor kebiasaan yang akan dihapus: '
-          );
-          const indexNum = parseInt(habitIndex);
-
-          if (indexNum >= 1 && indexNum <= userHabitsForDelete.length) {
-            const habitName = userHabitsForDelete[indexNum - 1].name;
-            const confirm = await askQuestion(
-              `Yakin hapus "${habitName}"? (y/n): `
-            );
-
-            if (confirm.toLowerCase() === 'y') {
-              tracker.deleteHabit(indexNum);
-              console.log(success('Kebiasaan berhasil dihapus!'));
-            }
-          } else {
-            console.log(error('Nomor kebiasaan tidak valid!'));
-          }
-        }
-        break;
-
-      case '10':
-        tracker.displayStats();
-        break;
-
-      case '11':
-        console.log('\nDemo While Loop:');
-        tracker.displayHabitsWithWhile();
-        console.log('Demo For Loop:');
-        tracker.displayHabitsWithFor();
-        break;
-
-      case '12':
-        console.log('\nPilih format export:');
-        console.log('1. CSV');
-        console.log('2. JSON');
-        const exportChoice = await askQuestion('Pilihan (1-2): ');
-
-        if (exportChoice === '1') {
-          tracker.exportToCSV();
-        } else if (exportChoice === '2') {
-          tracker.exportToJSON();
-        } else {
-          console.log(error('Pilihan tidak valid!'));
-        }
-        break;
-
-      case '13':
-        if (tracker.reminderInterval) {
-          tracker.stopReminder();
-          console.log(success('Reminder dimatikan!'));
-        } else {
-          tracker.startReminder();
-          console.log(success('Reminder diaktifkan!'));
-        }
-        break;
-
-      case '14':
-        tracker.stopReminder();
-        console.log(info('\n[INFO] Kembali ke pemilihan profil...\n'));
-        const userSelected = await showUserSelection(tracker);
-        if (!userSelected) {
-          rl.close();
-          return;
-        }
-        break;
-
-      case '0':
-        console.log(success('Terima kasih telah menggunakan Habit Tracker!'));
-        tracker.stopReminder();
-        rl.close();
-        return;
-
-      // HIDDEN COMMANDS
-      case 'demo':
-        tracker.addDemoData();
-        break;
-
-      case 'clear':
-        tracker.clearAllData();
-        console.log(success('Semua data telah dihapus!'));
-        break;
-
-      default:
-        console.log(error('Pilihan tidak valid! Silakan pilih 0-14.'));
+    const action = menuActions[choice];
+    if (action) {
+      const result = await action();
+      if (result === 'exit') return;
+    } else {
+      console.log(error('Pilihan tidak valid! Silakan pilih 0-14.'));
     }
 
     await askQuestion('Tekan Enter untuk melanjutkan...');
   }
 }
+
 // ============================================
 // MAIN FUNCTION
 // ============================================
@@ -1222,14 +1124,12 @@ async function main() {
 
   const tracker = new HabitTracker();
 
-  // User selection flow
   const userSelected = await showUserSelection(tracker);
   if (!userSelected) {
     rl.close();
     return;
   }
 
-  // Tambah data demo hanya untuk user baru yang belum punya habits
   const userHabits = tracker.getCurrentUserHabits();
   if (userHabits.length === 0) {
     tracker.addHabit('Minum Air 8 Gelas', 7, 'Kesehatan');
@@ -1255,4 +1155,8 @@ if (require.main === module) {
   });
 }
 
-module.exports = { UserProfile, Habit, HabitTracker };
+module.exports = {
+  UserProfile,
+  Habit,
+  HabitTracker,
+};
