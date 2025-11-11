@@ -179,7 +179,13 @@ class Habit {
       .map((d) => Helpers.getStartOfDay(new Date(d)))
       .sort((a, b) => b - a);
   }
-
+  /**
+   * Menghitung streak beruntun dari array tanggal completion
+   * Algoritma:
+   * 1. Mulai dari hari ini, cek apakah ada completion
+   * 2. Jika ada, lanjut ke hari sebelumnya
+   * 3. Stop ketika menemukan hari tanpa completion
+   */
   calculateStreakFromDates(today, sortedDates) {
     let streak = 0;
     let currentDate = new Date(today);
